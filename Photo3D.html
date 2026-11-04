@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Photo to 3D</title>
+<style>
+:root{--bg:#14161a;--panel:#1c1f25;--line:#2e333c;--ink:#e8e6e1;--dim:#9aa0aa;--acc:#6ec1d6}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,sans-serif}
+body{display:grid;grid-template-columns:290px 1fr;height:100dvh}
+aside{background:var(--panel);border-right:1px solid var(--line);padding:16px;overflow:auto}
+h1{font:600 20px/1.2 Georgia,serif;margin:0 0 4px}
+p.sub{margin:0 0 14px;color:var(--dim);font-size:13px}
+label.l{display:block;margin:14px 0 4px;font-size:13px;color:var(--dim)}
+label.l b{color:var(--ink);font-weight:500;float:right}
+input[type=range],select{width:100%;accent-color:var(--acc)}
+input[type=range]{height:28px}
+select{background:var(--bg);color:var(--ink);border:1px solid var(--line);padding:8px;border-radius:6px;font:inherit}
+.btn{position:relative;display:block;width:100%;padding:12px;border:1px solid var(--acc);background:transparent;color:var(--acc);border-radius:6px;font:inherit;cursor:pointer;text-align:center;overflow:hidden}
+.btn input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0}
+button.btn{margin-top:14px}
+.btn:active{background:var(--acc);color:#0d1114}
+button:disabled{opacity:.4;pointer-events:none}
+#st{margin-top:12px;font-size:13px;color:var(--dim);min-height:2.6em;word-break:break-word}
+#tog{display:none;margin-top:10px}
+#view{position:relative;min-height:0;min-width:0;overflow:hidden}
+#view canvas{display:block;touch-action:none}
+#empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--dim);text-align:center;padding:20px;pointer-events:none}
+aside.collapsed .ctl{display:none}
+@media(max-width:700px){
+  body{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}
+  aside{border-right:0;border-bottom:1px solid var(--line);max-height:48dvh;padding:12px 14px}
+  h1{font-size:17px}
+  p.sub{display:none}
+  #tog{display:block}
+}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+</head>
+<body>
+<aside id="side">
+  <h1>Photo to 3D</h1>
+  <p class="sub">Depth Anything V2 runs in your browser. Your photo is the texture, unmodified.</p>
+  <label class="btn">Choose photo<input id="file" type="file" accept="image/*"></label>
+  <label class="btn" style="margin-top:8px">Open a GLB file<input id="file3" type="file" accept=".glb,.gltf"></label>
+  <label class="btn" style="margin-top:8px">Add back photo (optional)<input id="file2" type="file" accept="image/*"></label>
+  <div id="st">Starting...</div>
+  <button id="tog" class="btn" type="button">Hide controls</button>
+  <div class="ctl">
+    <div id="bset" style="display:none">
+      <label class="l">Front camera tilt down <b id="vtf"></b></label>
+      <input id="tf" type="range" min="0" max="80" step="1" value="0">
+      <label class="l">Back camera tilt down <b id="vtb"></b></label>
+      <input id="tb" type="range" min="0" max="80" step="1" value="0">
+      <label class="l">Back distance <b id="vsep"></b></label>
+      <input id="sep" type="range" min="1" max="12" step="0.05" value="4">
+      <label class="l">Back scale <b id="vbsc"></b></label>
+      <input id="bsc" type="range" min="0.5" max="1.5" step="0.01" value="1">
+      <label class="l">Back shift left/right <b id="vbx"></b></label>
+      <input id="bx" type="range" min="-1" max="1" step="0.01" value="0">
+      <label class="l">Back shift up/down <b id="vby"></b></label>
+      <input id="by" type="range" min="-1" max="1" step="0.01" value="0">
+    </div>
+    <label class="l">Remove background <b id="vbgc"></b></label>
+    <input id="bgc" type="range" min="0" max="0.9" step="0.01" value="0">
+    <label class="l">Solid thickness (one photo) <b id="vsol"></b></label>
+    <input id="sol" type="range" min="0" max="1.5" step="0.05" value="0.6">
+    <label class="l">View range <b id="vrng"></b></label>
+    <input id="rng" type="range" min="10" max="90" step="5" value="40">
+    <label class="l">Mesh detail <b id="vres"></b></label>
+    <select id="res"><option value="192">Low (192)</option><option value="256" selected>Medium (256)</option><option value="384">High (384)</option><option value="512">Very high (512)</option></select>
+    <label class="l">Depth amount <b id="vstr"></b></label>
+    <input id="str" type="range" min="0.1" max="3" step="0.05" value="1">
+    <label class="l">Field of view <b id="vfov"></b></label>
+    <input id="fov" type="range" min="30" max="90" step="1" value="60">
+    <label class="l">Edge snap <b id="vsnap"></b></label>
+    <input id="snap" type="range" min="0" max="1" step="0.05" value="0.6">
+    <label class="l">Cut stretched faces <b id="vcut"></b></label>
+    <input id="cut" type="range" min="0.02" max="1" step="0.01" value="0.12">
+    <button id="glb" class="btn" type="button" disabled>Download GLB</button>
+  </div>
+</aside>
+<div id="view"><div id="empty">Drag to orbit, pinch or scroll to zoom,<br>two fingers or right-drag to pan.</div></div>
+
+<script type="module">
+const $=id=>document.getElementById(id);
+const stat=t=>{$('st').textContent=t};
+addEventListener('error',e=>stat('Error: '+e.message));
+addEventListener('unhandledrejection',e=>stat('Error: '+(e.reason&&e.reason.message||e.reason)));
+
+const mk=()=>({canvas:null,aspect:1,depthImg:null,raw:null,lum:null,dn:null,gw:0,gh:0,tex:null});
+const F=mk(), B=mk(); let S=F;
+let T=null, renderer, scene, cam, ctl, grp=null, fg, bg, bk, b2, imp=null, est=null;
+
+// ---------- controls (wired first so the page never looks dead) ----------
+const label=()=>{
+  $('vres').textContent=$('res').selectedOptions[0].text;
+  $('vstr').textContent=(+$('str').value).toFixed(2);
+  $('vfov').textContent=$('fov').value+'\u00b0';
+  $('vsnap').textContent=Math.round($('snap').value*100)+'%';
+  $('vcut').textContent=(+$('cut').value).toFixed(2);
+  for(const id of ['tf','tb']) $('v'+id).textContent=$(id).value+'\u00b0';
+  for(const id of ['bgc','sep','bsc','bx','by']) $('v'+id).textContent=(+$(id).value).toFixed(2);
+  $('vsol').textContent=+$('sol').value===0?'Off':(+$('sol').value).toFixed(2);
+  $('vrng').textContent=+$('rng').value>=90?'Free':'\u00b1'+$('rng').value+'\u00b0';
+};
+label();
+function redo(doSample){ for(const V of [F,B]) if(V.depthImg){S=V; if(doSample) sample(); filter();} S=F; build(); }
+$('res').oninput=()=>{label(); redo(true)};
+$('snap').oninput=()=>{label(); redo(false)};
+for(const id of ['str','fov','cut','sol','bgc','sep','bsc','bx','by','tf','tb']) $(id).oninput=()=>{label(); build()};
+$('tf').addEventListener('input',()=>applyRange());
+$('rng').oninput=()=>{label(); applyRange()};
+$('tog').onclick=()=>{const c=$('side').classList.toggle('collapsed');$('tog').textContent=c?'Show controls':'Hide controls';fit()};
+$('file').onchange=e=>{const f=e.target.files[0]; e.target.value=''; if(f) run(f,false)};
+$('file2').onchange=e=>{const f=e.target.files[0]; e.target.value=''; if(f) run(f,true)};
+$('glb').onclick=()=>{
+  new T.GLTFExporter().parse(imp||grp,buf=>{
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([buf],{type:'model/gltf-binary'}));
+    a.download='photo3d.glb'; a.click();
+  },err=>stat('Export failed: '+err.message),{binary:true});
+};
+$('file3').onchange=async e=>{
+  const f=e.target.files[0]; e.target.value=''; if(!f) return;
+  try{
+    stat('Opening model...'); await initViewer();
+    const {GLTFLoader}=await import('three/addons/loaders/GLTFLoader.js');
+    const g=await new GLTFLoader().parseAsync(await f.arrayBuffer(),'');
+    if(imp) scene.remove(imp);
+    if(grp) grp.visible=false;
+    imp=g.scene; scene.add(imp);
+    const V3=T.THREE.Vector3, box=new T.THREE.Box3().setFromObject(imp), c=box.getCenter(new V3()), sz=box.getSize(new V3()).length();
+    cam.fov=50; cam.updateProjectionMatrix(); cam.position.set(c.x,c.y,c.z+sz*1.2); ctl.target.copy(c);
+    $('rng').value=90; label(); applyRange(); ctl.update();
+    $('empty').style.display='none'; $('glb').disabled=false;
+    stat('Opened '+f.name+'. Drag to orbit.');
+  }catch(err){ console.error(err); stat('Could not open: '+(err.message||err)); }
+};
+stat('Ready. Choose a photo. The first run downloads the model (about 100 MB), then it is cached.');
+
+// ---------- viewer (loaded on demand) ----------
+async function initViewer(){
+  if(T) return;
+  stat('Loading 3D viewer...');
+  const [THREE,oc,ge]=await Promise.all([import('three'),import('three/addons/controls/OrbitControls.js'),import('three/addons/exporters/GLTFExporter.js')]);
+  T={THREE,GLTFExporter:ge.GLTFExporter};
+  renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  $('view').appendChild(renderer.domElement);
+  scene=new THREE.Scene(); scene.background=new THREE.Color(0x14161a);
+  cam=new THREE.PerspectiveCamera(60,1,0.01,100);
+  ctl=new oc.OrbitControls(cam,renderer.domElement); ctl.enableDamping=true; applyRange();
+  new ResizeObserver(fit).observe($('view')); fit();
+  renderer.setAnimationLoop(()=>{ctl.update();renderer.render(scene,cam)});
+}
+function applyRange(){
+  if(!ctl) return;
+  const d=+$('rng').value, r=d*Math.PI/180, free=d>=90;
+  ctl.minAzimuthAngle=free?-Infinity:-r; ctl.maxAzimuthAngle=free?Infinity:r;
+  const pc=Math.PI/2-(+$('tf').value)*Math.PI/180;
+  ctl.minPolarAngle=free?0:Math.max(0,pc-r); ctl.maxPolarAngle=free?Math.PI:Math.min(Math.PI,pc+r);
+}
+function fit(){
+  if(!renderer) return;
+  const v=$('view'), w=v.clientWidth, h=v.clientHeight; if(!w||!h) return;
+  renderer.setSize(w,h); cam.aspect=w/h; cam.updateProjectionMatrix();
+}
+
+// ---------- depth model ----------
+let dev='webgpu';
+async function getModel(){
+  if(est) return est;
+  const {pipeline}=await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2');
+  const id='onnx-community/depth-anything-v2-small';
+  if(dev==='webgpu'){
+    try{ est=await pipeline('depth-estimation',id,{device:'webgpu',dtype:'fp32'}); return est; }
+    catch(e){ dev='wasm'; }
+  }
+  stat('Using CPU (slower but more reliable)...');
+  est=await pipeline('depth-estimation',id,{device:'wasm'});
+  return est;
+}
+// run depth; if the GPU crashes (device lost), retry on CPU automatically
+async function infer(url){
+  try{ return await (await getModel())(url); }
+  catch(e){
+    if(dev==='wasm') throw e;
+    dev='wasm'; est=null;
+    stat('GPU failed ('+(e.message||e)+'). Retrying on CPU, this takes longer...');
+    return await (await getModel())(url);
+  }
+}
+
+// ---------- pipeline ----------
+async function run(f,back){
+  try{
+    if(back && !F.dn){ stat('Choose the front photo first, then add the back photo.'); return; }
+    const V=back?B:F, firstBack=back&&!B.dn;
+    stat('Reading photo...');
+    await initViewer();
+    const img=await createImageBitmap(f);
+    const k=Math.min(1,2048/Math.max(img.width,img.height));
+    const c=document.createElement('canvas'); c.width=Math.round(img.width*k); c.height=Math.round(img.height*k);
+    c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+    V.canvas=c; V.aspect=c.width/c.height;
+    stat('Loading depth model (first run downloads about 100 MB)...');
+    await getModel();
+    stat('Estimating depth...');
+    const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',.95));
+    const out=await infer(URL.createObjectURL(blob));
+    V.depthImg=out.depth;
+    if(V.tex) V.tex.dispose();
+    const THREE=T.THREE;
+    V.tex=new THREE.CanvasTexture(c); V.tex.colorSpace=THREE.SRGBColorSpace; V.tex.anisotropy=8;
+    $('empty').style.display='none';
+    if(!back){ B.dn=null; B.depthImg=null; $('bset').style.display='none'; }
+    S=V; sample(); filter(); S=F;
+    if(back){
+      $('bset').style.display='block';
+      if(firstBack){
+        $('sep').value=(2+3*(+$('str').value)).toFixed(2);
+        $('tf').value=30; $('tb').value=30;
+        $('bgc').value=0.3; $('rng').value=90; label(); applyRange();
+      }
+    }
+    build(!back||firstBack);
+    $('glb').disabled=false;
+    stat(back?'Back photo added. Set the two camera tilts to match how you held the phone, then adjust Back distance until the halves meet.':'Done. Adjust the sliders, or add a back photo.');
+    if(matchMedia('(max-width:700px)').matches && !$('side').classList.contains('collapsed')) $('tog').click();
+  }catch(err){ console.error(err); stat('Failed: '+(err.message||err)); }
+}
+
+// resample depth + photo luminance at mesh resolution
+function sample(){
+  const res=+$('res').value, a=S.aspect;
+  const gw=a>=1?res:Math.round(res*a), gh=a>=1?Math.round(res/a):res;
+  S.gw=gw; S.gh=gh;
+  const sc=document.createElement('canvas'); sc.width=gw; sc.height=gh;
+  const cx=sc.getContext('2d'); cx.drawImage(S.canvas,0,0,gw,gh);
+  const px=cx.getImageData(0,0,gw,gh).data, lum=new Float32Array(gw*gh);
+  for(let i=0;i<gw*gh;i++) lum[i]=(.299*px[4*i]+.587*px[4*i+1]+.114*px[4*i+2])/255;
+  const D=S.depthImg, dw=D.width, dh=D.height, ch=D.channels, dd=D.data, raw=new Float32Array(gw*gh);
+  for(let j=0;j<gh;j++)for(let i=0;i<gw;i++){
+    const x=Math.min(dw-1,Math.floor((i+.5)/gw*dw)), y=Math.min(dh-1,Math.floor((j+.5)/gh*dh));
+    raw[j*gw+i]=dd[(y*dw+x)*ch]/255;
+  }
+  S.raw=raw; S.lum=lum; S.px=px;
+}
+
+// joint bilateral filter: depth edges snap to photo edges
+function filter(){
+  const {gw,gh,raw,lum}=S, v=+$('snap').value, out=new Float32Array(gw*gh);
+  if(v===0){ S.dn=raw; return; }
+  const R=3, ss=2, sr=.28*(1-v)+.03;
+  for(let j=0;j<gh;j++)for(let i=0;i<gw;i++){
+    const k=j*gw+i; let s=0,w=0;
+    for(let dj=-R;dj<=R;dj++){const y=j+dj; if(y<0||y>=gh) continue;
+      for(let di=-R;di<=R;di++){const x=i+di; if(x<0||x>=gw) continue;
+        const q=y*gw+x, dl=lum[q]-lum[k];
+        const wt=Math.exp(-(di*di+dj*dj)/(2*ss*ss)-dl*dl/(2*sr*sr));
+        s+=raw[q]*wt; w+=wt;}}
+    out[k]=s/w;
+  }
+  S.dn=out;
+}
+
+// max-filter depth: pushes far depth over foreground edges (the "behind" layer)
+function dilate(Z,w,h,r){
+  const A=new Float32Array(Z.length), B=new Float32Array(Z.length);
+  for(let j=0;j<h;j++)for(let i=0;i<w;i++){let m=0;for(let d=-r;d<=r;d++){const x=i+d;if(x>=0&&x<w)m=Math.max(m,Z[j*w+x])}A[j*w+i]=m}
+  for(let j=0;j<h;j++)for(let i=0;i<w;i++){let m=0;for(let d=-r;d<=r;d++){const y=j+d;if(y>=0&&y<h)m=Math.max(m,A[y*w+i])}B[j*w+i]=m}
+  return B;
+}
+// colors for the hidden layer: foreground edge pixels are replaced by color spread in from the background side
+function makeBgTex(Z,Zb,cut){
+  const {gw,gh,px}=S, N=gw*gh, rgb=new Float32Array(N*3), ok=new Uint8Array(N);
+  for(let k=0;k<N;k++){rgb[3*k]=px[4*k];rgb[3*k+1]=px[4*k+1];rgb[3*k+2]=px[4*k+2];ok[k]=(Zb[k]-Z[k])/Z[k]>cut?0:1}
+  for(let it=0;it<12;it++){
+    const nx=ok.slice();
+    for(let j=0;j<gh;j++)for(let i=0;i<gw;i++){
+      const k=j*gw+i; if(ok[k]) continue;
+      let r=0,g=0,b=0,n=0;
+      for(let dj=-1;dj<=1;dj++)for(let di=-1;di<=1;di++){
+        const x=i+di,y=j+dj; if(x<0||y<0||x>=gw||y>=gh) continue;
+        const q=y*gw+x; if(ok[q]){r+=rgb[3*q];g+=rgb[3*q+1];b+=rgb[3*q+2];n++}
+      }
+      if(n){rgb[3*k]=r/n;rgb[3*k+1]=g/n;rgb[3*k+2]=b/n;nx[k]=1}
+    }
+    ok.set(nx);
+  }
+  const c=document.createElement('canvas'); c.width=gw; c.height=gh;
+  const cx=c.getContext('2d'), im=cx.createImageData(gw,gh);
+  for(let k=0;k<N;k++){im.data[4*k]=rgb[3*k];im.data[4*k+1]=rgb[3*k+1];im.data[4*k+2]=rgb[3*k+2];im.data[4*k+3]=255}
+  cx.putImageData(im,0,0);
+  if(S.bgTex) S.bgTex.dispose();
+  S.bgTex=new T.THREE.CanvasTexture(c); S.bgTex.colorSpace=T.THREE.SRGBColorSpace;
+}
+
+// guess the unseen back: split the depth map into objects (regions not separated by depth jumps),
+// then push each object's back surface away by an inflated, rounded profile (thick in the middle, zero at the silhouette)
+function solid(Z,k,cut,w,h,t,a){
+  const N=w*h, lab=new Int32Array(N).fill(-1), st=new Int32Array(N), area=[];
+  const lk=(p,q)=>Math.abs(Z[p]-Z[q])/Math.min(Z[p],Z[q])<=cut;
+  let nc=0;
+  for(let s0=0;s0<N;s0++){
+    if(lab[s0]>=0) continue;
+    let sp=0, ar=0; st[sp++]=s0; lab[s0]=nc;
+    while(sp){
+      const p=st[--sp], x=p%w, y=(p/w)|0; ar++;
+      if(x>0&&lab[p-1]<0&&lk(p,p-1)){lab[p-1]=nc;st[sp++]=p-1}
+      if(x<w-1&&lab[p+1]<0&&lk(p,p+1)){lab[p+1]=nc;st[sp++]=p+1}
+      if(y>0&&lab[p-w]<0&&lk(p,p-w)){lab[p-w]=nc;st[sp++]=p-w}
+      if(y<h-1&&lab[p+w]<0&&lk(p,p+w)){lab[p+w]=nc;st[sp++]=p+w}
+    }
+    area.push(ar); nc++;
+  }
+  const d=new Float32Array(N).fill(1e9), wall=new Float32Array(nc).fill(Infinity), Dm=new Float32Array(nc);
+  for(let p=0;p<N;p++){
+    const x=p%w, y=(p/w)|0, c=lab[p];
+    const nb=[x>0?p-1:-1, x<w-1?p+1:-1, y>0?p-w:-1, y<h-1?p+w:-1];
+    for(const q of nb){ if(q<0||lab[q]===c) continue; d[p]=0; if(Z[q]>Z[p]) wall[c]=Math.min(wall[c],Z[q]); }
+  }
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const p=y*w+x; let v=d[p];
+    if(x>0) v=Math.min(v,d[p-1]+1);
+    if(y>0){ v=Math.min(v,d[p-w]+1); if(x>0) v=Math.min(v,d[p-w-1]+1.414); if(x<w-1) v=Math.min(v,d[p-w+1]+1.414); }
+    d[p]=v;
+  }
+  for(let y=h-1;y>=0;y--)for(let x=w-1;x>=0;x--){
+    const p=y*w+x; let v=d[p];
+    if(x<w-1) v=Math.min(v,d[p+1]+1);
+    if(y<h-1){ v=Math.min(v,d[p+w]+1); if(x<w-1) v=Math.min(v,d[p+w+1]+1.414); if(x>0) v=Math.min(v,d[p+w-1]+1.414); }
+    d[p]=v;
+  }
+  for(let p=0;p<N;p++){ const c=lab[p]; if(d[p]<1e8&&d[p]>Dm[c]) Dm[c]=d[p]; }
+  const out=new Float32Array(N), pw=2*t*a/w;
+  for(let p=0;p<N;p++){
+    const c=lab[p], D=Dm[c];
+    if(area[c]<40||D<2){ out[p]=Z[p]; continue; }
+    const th=k*2*D*pw*Z[p]*Math.sqrt(Math.min(d[p],D)/D);
+    out[p]=Z[p]+th;
+  }
+  return out;
+}
+
+// back-project a depth grid to 3D and triangulate; skip faces across depth jumps or in the removed background
+function geoG(gw,gh,a,t,Zs,sc,Zi,dn,thr,cut){
+  const THREE=T.THREE, N=gw*gh, pos=new Float32Array(N*3), uv=new Float32Array(N*2);
+  for(let j=0;j<gh;j++)for(let i=0;i<gw;i++){
+    const k=j*gw+i, z=Zs[k]*sc, u=(i+.5)/gw, v=(j+.5)/gh;
+    pos[3*k]=(u-.5)*2*t*a*z; pos[3*k+1]=-(v-.5)*2*t*z; pos[3*k+2]=-z;
+    uv[2*k]=u; uv[2*k+1]=1-v;
+  }
+  const idx=[];
+  for(let j=0;j<gh-1;j++)for(let i=0;i<gw-1;i++){
+    const p=j*gw+i, b=p+1, c=p+gw, d=c+1;
+    if(dn[p]<thr||dn[b]<thr||dn[c]<thr||dn[d]<thr) continue;
+    const lo=Math.min(Zi[p],Zi[b],Zi[c],Zi[d]), hi=Math.max(Zi[p],Zi[b],Zi[c],Zi[d]);
+    if((hi-lo)/lo>cut) continue;
+    idx.push(p,c,b,b,c,d);
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  g.setAttribute('uv',new THREE.BufferAttribute(uv,2));
+  g.setIndex(idx); return g;
+}
+function zOf(dn,far){ const Z=new Float32Array(dn.length); for(let k=0;k<dn.length;k++) Z[k]=1/(1/far+dn[k]*(1-1/far)); return Z; }
+
+function build(first){
+  if(!F.dn||!T) return;
+  if(imp){ scene.remove(imp); imp=null; }
+  if(grp) grp.visible=true;
+  S=F;
+  const THREE=T.THREE, {gw,gh,dn}=F;
+  const fov=+$('fov').value*Math.PI/180, s=+$('str').value, cut=+$('cut').value, sol=+$('sol').value, thr=+$('bgc').value;
+  const far=1+s*3, t=Math.tan(fov/2), a=F.aspect, two=!!B.dn;
+  const Z=zOf(dn,far);
+  const g1=geoG(gw,gh,a,t,Z,1,Z,dn,thr,cut);
+  let g2=null,g3=null,g4=null;
+  if(two){
+    const Z2=zOf(B.dn,far);
+    g4=geoG(B.gw,B.gh,B.aspect,t,Z2,1,Z2,B.dn,thr,cut);
+  }else{
+    if(thr===0){ const Zb=dilate(Z,gw,gh,6); makeBgTex(Z,Zb,cut); g2=geoG(gw,gh,a,t,Zb,1.01,Zb,dn,0,cut); }
+    if(sol>0) g3=geoG(gw,gh,a,t,solid(Z,sol,cut,gw,gh,t,a),1,Z,dn,thr,cut);
+  }
+  if(!grp){
+    grp=new THREE.Group();
+    const M=o=>new THREE.MeshBasicMaterial(o), E=()=>new THREE.BufferGeometry();
+    fg=new THREE.Mesh(E(),M({})); bg=new THREE.Mesh(E(),M({side:THREE.DoubleSide}));
+    bk=new THREE.Mesh(E(),M({side:THREE.BackSide,color:0xb4b4b4})); b2=new THREE.Mesh(E(),M({}));
+    grp.add(bg,fg,bk,b2); scene.add(grp);
+  }
+  const setG=(m,g)=>{ m.geometry.dispose(); m.geometry=g||new THREE.BufferGeometry(); m.visible=!!g; };
+  setG(fg,g1); setG(bg,g2); setG(bk,g3); setG(b2,g4);
+  fg.material.side=(g3||two)?THREE.FrontSide:THREE.DoubleSide;
+  fg.material.map=F.tex; bg.material.map=F.bgTex; bk.material.map=F.tex; b2.material.map=B.tex;
+  for(const m of [fg,bg,bk,b2]) m.material.needsUpdate=true;
+  const sep=+$('sep').value;
+  // both cameras are pitched down: put the world's vertical axis along +y, and turn the back view 180 degrees about that vertical axis through the object
+  const phiF=+$('tf').value*Math.PI/180, phiB=+$('tb').value*Math.PI/180, V3=THREE.Vector3, M4=THREE.Matrix4;
+  grp.rotation.set(-phiF,0,0);
+  const C=new V3(0,0,-sep/2), uF=new V3(0,Math.cos(phiF),Math.sin(phiF)), k=+$('bsc').value;
+  const m=new M4().makeTranslation(+$('bx').value,+$('by').value,0);
+  m.multiply(new M4().makeTranslation(C.x,C.y,C.z));
+  m.multiply(new M4().makeRotationAxis(uF,Math.PI));
+  m.multiply(new M4().makeTranslation(-C.x,-C.y,-C.z));
+  m.multiply(new M4().makeRotationX(phiF-phiB));
+  m.multiply(new M4().makeScale(k,k,k));
+  b2.matrixAutoUpdate=false; b2.matrix.copy(m); b2.matrixWorldNeedsUpdate=true;
+  if(first){
+    cam.fov=+$('fov').value; cam.updateProjectionMatrix();
+    cam.position.set(0,0,0);
+    ctl.target.copy(new V3(0,0,two?-sep/2:-(1+far)/2).applyAxisAngle(new V3(1,0,0),-phiF)); ctl.update();
+  }
+}
+</script>
+</body>
+</html>
